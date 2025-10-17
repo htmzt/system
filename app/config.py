@@ -1,30 +1,43 @@
 # app/config.py
+"""
+Application Configuration
+Loads settings from environment variables (.env file)
+"""
+
 from pydantic_settings import BaseSettings
 from typing import List
 from dotenv import load_dotenv
-import os
 
+# Load environment variables from .env file
 load_dotenv()
 
-class Settings(BaseSettings):
 
+class Settings(BaseSettings):
+    """
+    Application settings loaded from environment variables
+    Pydantic automatically reads from .env file
+    """
+    
     # ========== APPLICATION INFO ==========
     APP_NAME: str = "Internal PO System"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
+    ENVIRONMENT: str = "development"  # development, production, testing
     
     # ========== DATABASE ==========
-    DATABASE_URL: os.getenv("DATABASE_URL")
-
+    DATABASE_URL: str  # Will be loaded from .env
+    # No default value - MUST be set in .env
+    
     # ========== JWT CONFIGURATION ==========
-    SECRET_KEY: os.getenv("SECRET_KEY")
- 
+    SECRET_KEY: str  # Will be loaded from .env
+    # No default value - MUST be set in .env
+    
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440 
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     
     # ========== SECURITY SETTINGS ==========
-    MAX_LOGIN_ATTEMPTS: int = 7
+    MAX_LOGIN_ATTEMPTS: int = 5
     LOCKOUT_DURATION_MINUTES: int = 30
     
     # Password requirements
@@ -40,7 +53,7 @@ class Settings(BaseSettings):
         "http://localhost:8000",
     ]
     
-    # ========== EMAIL CONFIGURATION (Optional) ==========
+    # ========== EMAIL CONFIGURATION ==========
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
     SMTP_USER: str = "sib.service.it@gmail.com"
@@ -60,6 +73,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = 'utf-8'
         case_sensitive = True
+        extra = 'ignore'  # Ignore extra fields in .env
 
 
 # Create global settings instance
