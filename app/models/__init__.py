@@ -6,10 +6,19 @@ from app.models.auth import (
     LoginHistory,
     PermissionChangeLog
 )
+from app.models.assignment import (
+    Assignment,
+    AssignmentStatus
+)
 
 __all__ = [
+    # Auth Models
     "InternalUser",
     "UserSession",
     "LoginHistory",
     "PermissionChangeLog",
+    
+    # Assignment Models
+    "Assignment",
+    "AssignmentStatus",
 ]

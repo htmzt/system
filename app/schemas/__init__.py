@@ -38,37 +38,64 @@ from app.schemas.auth import (
     ErrorResponse,
 )
 
+from app.schemas.assignment import (
+    # PO Line Selection
+    POLineSelection,
+    
+    # Assignment Creation
+    BulkAssignmentCreate,
+    BulkAssignmentCreateResponse,
+    AssignmentCreatedSummary,
+    AssignmentCreate,
+    AssignmentUpdate,
+    
+    # Assignment Actions
+    AssignmentApprove,
+    AssignmentReject,
+    
+    # Assignment Response
+    AssignmentResponse,
+    AssignmentWithUsers,
+    AssignmentWithPODetails,
+    AssignmentListResponse,
+    
+    # Statistics
+    AssignmentStatistics,
+    
+    # PO Details
+    POLineDetail,
+)
+
 __all__ = [
-    # User Creation
+    # User schemas
     "UserCreate",
     "UserCreateSBC",
-    
-    # Login
     "UserLogin",
     "Token",
     "TokenData",
-    
-    # User Response
     "UserResponse",
     "UserResponseWithToken",
     "UserListResponse",
-    
-    # User Update
     "UserUpdate",
-    
-    # Password Management
     "PasswordChange",
     "PasswordResetRequest",
     "PasswordReset",
-    
-    # Permissions
     "GrantApprovalPermission",
     "RevokeApprovalPermission",
-    
-    # Email Verification
     "EmailVerification",
-    
-    # Generic Responses
     "MessageResponse",
     "ErrorResponse",
+    
+    # Assignment schemas
+    "AssignmentCreate",
+    "AssignmentUpdate",
+    "AssignmentSubmit",
+    "AssignmentApprove",
+    "AssignmentReject",
+    "AssignmentResponse",
+    "AssignmentWithUsers",
+    "AssignmentWithPODetails",
+    "AssignmentListResponse",
+    "AssignmentStatistics",
+    "POLineDetail",
 ]

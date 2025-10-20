@@ -16,7 +16,7 @@ import logging
 
 from app.config import settings
 from app.database import engine, Base
-from app.api.v1 import auth, users
+from app.api.v1 import auth, users, assignments
 
 # Configure logging
 logging.basicConfig(
@@ -158,7 +158,8 @@ def root():
         "redoc": "/redoc",
         "endpoints": {
             "authentication": "/api/v1/auth",
-            "users": "/api/v1/users"
+            "users": "/api/v1/users",
+            "assignments" : "/api/v1/assignments"
         }
     }
 

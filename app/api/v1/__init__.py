@@ -3,6 +3,6 @@
 API Version 1
 """
 
-from app.api.v1 import auth, users
+from app.api.v1 import auth, users, assignments
 
-__all__ = ["auth", "users"]
+__all__ = ["auth", "users", "assignments"]
