@@ -182,6 +182,7 @@ def health_check():
 # API v1 routes
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
+app.include_router(assignments.router, prefix="/api/v1")
 
 # ============================================================================
 # RUN APPLICATION
