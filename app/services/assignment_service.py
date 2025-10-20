@@ -1,12 +1,14 @@
 # app/services/assignment_service.py
 """
-Assignment Service
+Assignment Service - COMPLETE VERSION
 
 This service handles:
 - Bulk assignment creation (groups by PO number automatically)
 - Single assignment creation
 - Submit for approval
-- Approve/reject assignments
+- PD approval (Level 1)
+- Admin approval (Level 2)
+- Reject assignments
 - Get assignment details with PO data
 """
 
@@ -29,7 +31,7 @@ from app.core.permissions import UserRole
 
 
 class AssignmentService:
-    """Assignment management service"""
+    """Assignment management service - COMPLETE"""
     
     def __init__(self, db: Session):
         self.db = db
@@ -47,17 +49,6 @@ class AssignmentService:
         Create multiple assignments from selected PO lines
         
         Automatically groups lines by PO number and creates one assignment per PO
-        
-        Args:
-            bulk_data: Selected PO lines + SBC ID + notes
-            created_by_pm_id: PM creating the assignments
-            
-        Returns:
-            Dictionary with created assignments summary
-            
-        Example:
-            Input: 5 PO lines (3 from PO 1212121, 2 from PO 1313131)
-            Output: 2 assignments created
         """
         # Validate SBC exists and has correct role
         sbc = self.db.query(InternalUser).filter(
@@ -123,16 +114,7 @@ class AssignmentService:
         assignment_data: AssignmentCreate,
         created_by_pm_id: uuid.UUID
     ) -> Assignment:
-        """
-        Create a single assignment manually
-        
-        Args:
-            assignment_data: Assignment data
-            created_by_pm_id: PM creating the assignment
-            
-        Returns:
-            Created assignment
-        """
+        """Create a single assignment manually"""
         # Validate SBC
         sbc = self.db.query(InternalUser).filter(
             InternalUser.id == assignment_data.assigned_to_sbc_id,
@@ -180,17 +162,7 @@ class AssignmentService:
         update_data: AssignmentUpdate,
         user_id: uuid.UUID
     ) -> Assignment:
-        """
-        Update assignment (only in DRAFT status)
-        
-        Args:
-            assignment_id: Assignment UUID
-            update_data: Fields to update
-            user_id: User making the update
-            
-        Returns:
-            Updated assignment
-        """
+        """Update assignment (only in DRAFT status)"""
         assignment = self.get_assignment_by_id(assignment_id)
         
         if not assignment:
@@ -208,7 +180,6 @@ class AssignmentService:
         
         # Only creator or admin can update
         if str(assignment.created_by_pm_id) != str(user_id):
-            # Check if user is admin
             user = self.db.query(InternalUser).filter(InternalUser.id == user_id).first()
             if not user or user.role != UserRole.ADMIN:
                 raise HTTPException(
@@ -221,7 +192,6 @@ class AssignmentService:
             assignment.external_po_line_numbers = update_data.external_po_line_numbers
         
         if update_data.assigned_to_sbc_id is not None:
-            # Validate new SBC
             sbc = self.db.query(InternalUser).filter(
                 InternalUser.id == update_data.assigned_to_sbc_id,
                 InternalUser.role == UserRole.SBC
@@ -250,16 +220,7 @@ class AssignmentService:
         assignment_id: uuid.UUID,
         user_id: uuid.UUID
     ) -> Assignment:
-        """
-        Submit assignment for approval
-        
-        Args:
-            assignment_id: Assignment UUID
-            user_id: User submitting (must be creator)
-            
-        Returns:
-            Updated assignment
-        """
+        """Submit assignment for approval (DRAFT → PENDING_PD_APPROVAL)"""
         assignment = self.get_assignment_by_id(assignment_id)
         
         if not assignment:
@@ -283,7 +244,7 @@ class AssignmentService:
             )
         
         # Update status
-        assignment.status = AssignmentStatus.PENDING_APPROVAL
+        assignment.status = AssignmentStatus.PENDING_PD_APPROVAL
         assignment.submitted_at = datetime.now(timezone.utc)
         
         self.db.commit()
@@ -292,25 +253,18 @@ class AssignmentService:
         return assignment
     
     # ========================================================================
-    # APPROVE ASSIGNMENT
+    # LEVEL 1 APPROVAL (PD)
     # ========================================================================
     
-    def approve_assignment(
+    def approve_level1(
         self,
         assignment_id: uuid.UUID,
-        approver_id: uuid.UUID,
-        remarks: Optional[str] = None
+        pd_id: uuid.UUID,
+        pd_remarks: Optional[str] = None
     ) -> Assignment:
         """
-        Approve assignment
-        
-        Args:
-            assignment_id: Assignment UUID
-            approver_id: User approving (must have approval permission)
-            remarks: Optional approver remarks
-            
-        Returns:
-            Updated assignment
+        PD approves assignment (Level 1)
+        PENDING_PD_APPROVAL → PENDING_ADMIN_APPROVAL
         """
         assignment = self.get_assignment_by_id(assignment_id)
         
@@ -320,18 +274,74 @@ class AssignmentService:
                 detail="Assignment not found"
             )
         
-        # Must be PENDING_APPROVAL
-        if assignment.status != AssignmentStatus.PENDING_APPROVAL:
+        # Must be PENDING_PD_APPROVAL
+        if assignment.status != AssignmentStatus.PENDING_PD_APPROVAL:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot approve assignment in {assignment.status.value} status"
+                detail=f"Cannot approve assignment in {assignment.status.value} status. Must be PENDING_PD_APPROVAL."
+            )
+        
+        # Verify PD role
+        pd = self.db.query(InternalUser).filter(InternalUser.id == pd_id).first()
+        if not pd or pd.role != UserRole.PD:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only PD can give Level 1 approval"
+            )
+        
+        # Update status
+        assignment.status = AssignmentStatus.PENDING_ADMIN_APPROVAL
+        assignment.pd_approved_by_id = pd_id
+        assignment.pd_approved_at = datetime.now(timezone.utc)
+        assignment.pd_remarks = pd_remarks
+        
+        self.db.commit()
+        self.db.refresh(assignment)
+        
+        return assignment
+    
+    # ========================================================================
+    # LEVEL 2 APPROVAL (ADMIN)
+    # ========================================================================
+    
+    def approve_level2(
+        self,
+        assignment_id: uuid.UUID,
+        admin_id: uuid.UUID,
+        admin_remarks: Optional[str] = None
+    ) -> Assignment:
+        """
+        Admin approves assignment (Level 2)
+        PENDING_ADMIN_APPROVAL → APPROVED
+        """
+        assignment = self.get_assignment_by_id(assignment_id)
+        
+        if not assignment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Assignment not found"
+            )
+        
+        # Must be PENDING_ADMIN_APPROVAL
+        if assignment.status != AssignmentStatus.PENDING_ADMIN_APPROVAL:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot approve assignment in {assignment.status.value} status. Must be PENDING_ADMIN_APPROVAL."
+            )
+        
+        # Verify Admin role
+        admin = self.db.query(InternalUser).filter(InternalUser.id == admin_id).first()
+        if not admin or admin.role != UserRole.ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only Admin can give Level 2 approval"
             )
         
         # Update status
         assignment.status = AssignmentStatus.APPROVED
-        assignment.approved_by_id = approver_id
-        assignment.approved_at = datetime.now(timezone.utc)
-        assignment.approver_remarks = remarks
+        assignment.admin_approved_by_id = admin_id
+        assignment.admin_approved_at = datetime.now(timezone.utc)
+        assignment.admin_remarks = admin_remarks
         
         self.db.commit()
         self.db.refresh(assignment)
@@ -345,19 +355,12 @@ class AssignmentService:
     def reject_assignment(
         self,
         assignment_id: uuid.UUID,
-        approver_id: uuid.UUID,
+        rejector_id: uuid.UUID,
         rejection_reason: str
     ) -> Assignment:
         """
-        Reject assignment
-        
-        Args:
-            assignment_id: Assignment UUID
-            approver_id: User rejecting
-            rejection_reason: Reason for rejection
-            
-        Returns:
-            Updated assignment
+        Reject assignment (PD or Admin can reject)
+        Returns to DRAFT status so PM can fix and resubmit
         """
         assignment = self.get_assignment_by_id(assignment_id)
         
@@ -367,18 +370,29 @@ class AssignmentService:
                 detail="Assignment not found"
             )
         
-        # Must be PENDING_APPROVAL
-        if assignment.status != AssignmentStatus.PENDING_APPROVAL:
+        # Can only reject if pending approval
+        if assignment.status not in [
+            AssignmentStatus.PENDING_PD_APPROVAL,
+            AssignmentStatus.PENDING_ADMIN_APPROVAL
+        ]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot reject assignment in {assignment.status.value} status"
             )
         
+        # Verify rejector is PD or Admin
+        rejector = self.db.query(InternalUser).filter(InternalUser.id == rejector_id).first()
+        if not rejector or rejector.role not in [UserRole.PD, UserRole.ADMIN]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only PD or Admin can reject assignments"
+            )
+        
         # Update status
         assignment.status = AssignmentStatus.REJECTED
+        assignment.rejected_by_id = rejector_id
         assignment.rejected_at = datetime.now(timezone.utc)
         assignment.rejection_reason = rejection_reason
-        assignment.approver_remarks = rejection_reason
         
         self.db.commit()
         self.db.refresh(assignment)
@@ -415,27 +429,48 @@ class AssignmentService:
     def get_assignments_for_sbc(
         self,
         sbc_id: uuid.UUID,
-        status: Optional[str] = None,
         skip: int = 0,
         limit: int = 100
     ) -> List[Assignment]:
-        """Get assignments for SBC (only APPROVED)"""
-        query = self.db.query(Assignment).filter(
+        """Get APPROVED assignments for SBC"""
+        return self.db.query(Assignment).filter(
             Assignment.assigned_to_sbc_id == sbc_id,
             Assignment.status == AssignmentStatus.APPROVED
-        )
-        
-        return query.order_by(Assignment.approved_at.desc()).offset(skip).limit(limit).all()
+        ).order_by(Assignment.admin_approved_at.desc()).offset(skip).limit(limit).all()
     
-    def get_pending_approvals(
+    def get_pending_pd_approvals(
         self,
         skip: int = 0,
         limit: int = 100
     ) -> List[Assignment]:
-        """Get all pending approval assignments"""
+        """Get assignments pending PD approval (Level 1)"""
         return self.db.query(Assignment).filter(
-            Assignment.status == AssignmentStatus.PENDING_APPROVAL
+            Assignment.status == AssignmentStatus.PENDING_PD_APPROVAL
         ).order_by(Assignment.submitted_at.asc()).offset(skip).limit(limit).all()
+    
+    def get_pending_admin_approvals(
+        self,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[Assignment]:
+        """Get assignments pending Admin approval (Level 2)"""
+        return self.db.query(Assignment).filter(
+            Assignment.status == AssignmentStatus.PENDING_ADMIN_APPROVAL
+        ).order_by(Assignment.pd_approved_at.asc()).offset(skip).limit(limit).all()
+    
+    def get_all_assignments(
+        self,
+        status: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[Assignment]:
+        """Get all assignments (Admin/PD only)"""
+        query = self.db.query(Assignment)
+        
+        if status:
+            query = query.filter(Assignment.status == status)
+        
+        return query.order_by(Assignment.created_at.desc()).offset(skip).limit(limit).all()
     
     # ========================================================================
     # HELPER METHODS
@@ -445,27 +480,7 @@ class AssignmentService:
         self,
         po_lines: List[POLineSelection]
     ) -> Dict[str, List[str]]:
-        """
-        Group PO lines by PO number
-        
-        Args:
-            po_lines: List of selected PO lines
-            
-        Returns:
-            Dictionary: {po_number: [line1, line2, ...]}
-            
-        Example:
-            Input: [
-                {po_number: "1212121", po_line: "2"},
-                {po_number: "1212121", po_line: "3"},
-                {po_number: "1313131", po_line: "6"}
-            ]
-            
-            Output: {
-                "1212121": ["2", "3"],
-                "1313131": ["6"]
-            }
-        """
+        """Group PO lines by PO number"""
         grouped = defaultdict(list)
         for line in po_lines:
             grouped[line.po_number].append(line.po_line)
@@ -475,25 +490,19 @@ class AssignmentService:
         self,
         grouped_lines: Dict[str, List[str]]
     ) -> None:
-        """
-        Check if any PO lines are already assigned
-        
-        Raises:
-            HTTPException: If any line is already assigned
-        """
+        """Check if any PO lines are already assigned"""
         for po_number, line_numbers in grouped_lines.items():
-            # Check if any line is in an existing assignment
             existing = self.db.query(Assignment).filter(
                 Assignment.external_po_number == po_number,
                 Assignment.status.in_([
                     AssignmentStatus.DRAFT,
-                    AssignmentStatus.PENDING_APPROVAL,
+                    AssignmentStatus.PENDING_PD_APPROVAL,
+                    AssignmentStatus.PENDING_ADMIN_APPROVAL,
                     AssignmentStatus.APPROVED
                 ])
             ).all()
             
             for assignment in existing:
-                # Check if any line overlaps
                 overlap = set(line_numbers) & set(assignment.external_po_line_numbers)
                 if overlap:
                     raise HTTPException(
@@ -504,21 +513,17 @@ class AssignmentService:
     def _generate_internal_po_id(self) -> str:
         """
         Generate unique internal PO ID
-        
         Format: PO-SIB-YYYYMMDD-XXX
-        Example: PO-SIB-20251020-001
         """
         today = datetime.now(timezone.utc)
         date_str = today.strftime("%Y%m%d")
-        
-        # Find max sequence for today
         prefix = f"PO-SIB-{date_str}-"
+        
         last_assignment = self.db.query(Assignment).filter(
             Assignment.internal_po_id.like(f"{prefix}%")
         ).order_by(Assignment.internal_po_id.desc()).first()
         
         if last_assignment:
-            # Extract sequence number and increment
             last_seq = int(last_assignment.internal_po_id.split("-")[-1])
             new_seq = last_seq + 1
         else:
