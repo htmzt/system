@@ -126,12 +126,12 @@ async def startup_event():
     logger.info(f"   Debug: {settings.DEBUG}")
     logger.info("=" * 60)
     
-    # Create tables if they don't exist (for development)
-    # In production, use Alembic migrations instead
-    if settings.DEBUG:
-        logger.info("Creating database tables...")
-        Base.metadata.create_all(bind=engine)
-        logger.info("✅ Database tables created")
+    # NOTE: In production, use Alembic migrations instead of create_all()
+    # Run: alembic upgrade head
+    # We no longer auto-create tables here
+    if settings.ENVIRONMENT == "development":
+        logger.warning("⚠️  Development mode: Use Alembic migrations")
+        logger.warning("   Run: python migrate.py upgrade")
 
 
 @app.on_event("shutdown")

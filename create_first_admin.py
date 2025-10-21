@@ -1,10 +1,3 @@
-# create_first_admin.py
-"""
-Create first admin account
-
-Run this script once to create the initial admin user:
-    python create_first_admin.py
-"""
 
 from app.database import SessionLocal
 from app.models.auth import InternalUser
